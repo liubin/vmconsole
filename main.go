@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"regexp"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-logfmt/logfmt"
@@ -67,9 +69,10 @@ type logEntry struct {
 	Subsystem string `json:"subsystem"`
 	Sandbox   string `json:"sandbox"`
 	Name      string `json:"name"`
-}
 
-type kvPairs []kvPair
+	// raw contains string that can't Unmarshal
+	raw string
+}
 
 var (
 	dateFormatRE *regexp.Regexp
@@ -79,9 +82,9 @@ func init() {
 	dateFormatRE = regexp.MustCompile(dateFormatPattern)
 }
 
-func parseLogFmtData(reader io.Reader, file string) error {
+func parseLogFile(out output, reader io.Reader) error {
+
 	d := logfmt.NewDecoder(reader)
-	var keyvals kvPairs
 	line := uint64(0)
 
 	// A record is a single line
@@ -92,53 +95,28 @@ func parseLogFmtData(reader io.Reader, file string) error {
 			key := string(d.Key())
 			value := string(d.Value())
 			if key == "vmconsole" && value != "" {
-				pair := kvPair{
-					key:   key,
-					value: value,
+				var le logEntry
+				err := json.Unmarshal([]byte(value), &le)
+				if err != nil {
+					le.raw = value
 				}
+				out.output(&le)
 
-				// save key/value pair
-				keyvals = append(keyvals, pair)
 				break
 			}
-
 		}
 
 		if err := d.Err(); err != nil {
-			return fmt.Errorf("failed to parse file %q, line %d: %v (keyvals: %+v)",
-				file, line, err, keyvals)
-		}
-	}
-
-	for _, kv := range keyvals {
-		var le logEntry
-		err := json.Unmarshal([]byte(kv.value), &le)
-		if err != nil {
-			fmt.Println(kv.value)
+			fmt.Printf("failed to parse: %+v\n", err)
 			continue
-		}
-		if le.Msg == "" {
-			fmt.Println(kv.value)
-		} else {
-			fmt.Println(le.Msg)
 		}
 	}
 
 	if d.Err() != nil {
-		return fmt.Errorf("failed to parse file %q line %d: %v", file, line, d.Err())
+		return fmt.Errorf("failed to parse at last: %+v", d.Err())
 	}
 
 	return nil
-}
-
-// parseLogFile reads a logfmt format logfile and converts it into log
-// entries.
-func parseLogFile(file string) error {
-	// logfmt is unhappy attempting to read hex-encoded bytes in strings,
-	// so hide those from it by escaping them.
-	reader := NewHexByteReader(file)
-
-	return parseLogFmtData(reader, file)
 }
 
 // parseTime attempts to convert the specified timestamp string into a Time
@@ -165,8 +143,57 @@ func parseTime(timeString string) (time.Time, error) {
 	return t, nil
 }
 
+var (
+	// for debug
+	debugLastLine     string
+	debugLastLastLine string
+)
+
 func main() {
-	if err := parseLogFile(os.Args[1]); err != nil {
-		panic(err)
+	var (
+		file   *os.File
+		err    error
+		reader io.Reader
+	)
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(debugLastLastLine)
+			fmt.Println(debugLastLine)
+			fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
+		}
+	}()
+	output := newConsoleOutput(os.Stdout)
+
+	ch := make(chan struct{})
+
+	if len(os.Args) == 2 {
+		// use input file
+		file, err = os.Open(os.Args[1])
+		if err != nil {
+			panic(err)
+		}
+		reader = NewHexByteFileReader(file)
+		if err := parseLogFile(output, reader); err != nil {
+			panic(err)
+		}
+		close(ch)
+
+	} else {
+		// read realtime from journalctl
+		// journalctl -f -q -o cat -a -t kata
+		cmd := exec.Command("journalctl", "-f", "-q", "-o", "cat", "-t", "kata")
+		commandStdoutReader, _ := cmd.StdoutPipe()
+		cmd.Stderr = cmd.Stdout
+		if err := cmd.Start(); err != nil {
+			panic(err)
+		}
+		reader := NewHexByteStreamReader(commandStdoutReader)
+		if err := parseLogFile(output, reader); err != nil {
+			panic(err)
+		}
+
+		cmd.Wait()
 	}
+
 }

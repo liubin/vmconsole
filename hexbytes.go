@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -15,15 +16,14 @@ import (
 	"strings"
 )
 
-const (
-	stdinFile = "-"
-)
-
 // HexByteReader is an I/O Reader type.
 type HexByteReader struct {
-	file string
-	f    *os.File
-	data []byte
+	file    *os.File
+	reader  io.Reader
+	data    []byte
+	scanner *bufio.Scanner
+
+	buffer []byte
 
 	// total length of "data"
 	len int
@@ -32,36 +32,89 @@ type HexByteReader struct {
 	offset int
 }
 
-// NewHexByteReader returns a new hex byte reader that escapes all
-// hex-encoded characters.
-func NewHexByteReader(file string) *HexByteReader {
-	var f *os.File
-
-	// treat dash as an alias for standard input
-	if file == stdinFile {
-		f = os.Stdin
-	}
-
+func NewHexByteFileReader(file *os.File) *HexByteReader {
 	return &HexByteReader{
 		file: file,
-		f:    f,
+	}
+}
+func NewHexByteStreamReader(reader io.Reader) *HexByteReader {
+	scanner := bufio.NewScanner(reader)
+
+	return &HexByteReader{
+		reader:  reader,
+		scanner: scanner,
 	}
 }
 
-// Read is a Reader that converts "\x" to "\\x"
 func (r *HexByteReader) Read(p []byte) (n int, err error) {
+	if r.file != nil {
+		return r.fileReader(p)
+	} else {
+		return r.streamReader(p)
+	}
+}
+
+func copy(s, d []byte, size int) {
+	for i := 0; i < size; i++ {
+		d[i] = s[i]
+	}
+}
+
+func (r *HexByteReader) streamReader(p []byte) (n int, err error) {
+	eof := false
+	for {
+		bufferedSize := len(r.buffer)
+		if bufferedSize > 0 {
+			writeSize := len(p)
+			size := 0
+			if bufferedSize >= writeSize {
+				size = writeSize
+			} else {
+				size = bufferedSize
+			}
+
+			copy(r.buffer, p, size)
+			// debugLastLine = string(p)
+
+			if size == bufferedSize {
+				r.buffer = []byte{}
+			} else {
+				r.buffer = r.buffer[(size + 1):]
+			}
+
+			return size, nil
+		}
+
+		if eof {
+			return 0, io.EOF
+		}
+
+		if r.scanner.Scan() {
+			line := r.scanner.Text()
+			line = replace(line)
+			r.buffer = append(r.buffer, []byte(line)...)
+			r.buffer = append(r.buffer, 0xa)
+		} else {
+			eof = true
+			return
+		}
+	}
+}
+
+func replace(s string) string {
+	s = strings.Replace(s, `\x`, `\\x`, -1)
+	// restore if the old string is `\\x`
+	s = strings.Replace(s, `\\\x`, `\\x`, -1)
+	return s
+}
+
+// Read is a Reader that converts "\x" to "\\x"
+func (r *HexByteReader) fileReader(p []byte) (n int, err error) {
 	size := len(p)
 
 	if r.data == nil {
-		if r.f == nil {
-			r.f, err = os.Open(r.file)
-			if err != nil {
-				return 0, err
-			}
-		}
-
 		// read the entire file
-		bytes, err := ioutil.ReadAll(r.f)
+		bytes, err := ioutil.ReadAll(r.file)
 		if err != nil {
 			return 0, err
 		}
