@@ -74,7 +74,6 @@ func (r *HexByteReader) streamReader(p []byte) (n int, err error) {
 			}
 
 			copy(r.buffer, p, size)
-			// debugLastLine = string(p)
 
 			if size == bufferedSize {
 				r.buffer = []byte{}

@@ -143,12 +143,6 @@ func parseTime(timeString string) (time.Time, error) {
 	return t, nil
 }
 
-var (
-	// for debug
-	debugLastLine     string
-	debugLastLastLine string
-)
-
 func main() {
 	var (
 		file   *os.File
@@ -158,8 +152,6 @@ func main() {
 
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println(debugLastLastLine)
-			fmt.Println(debugLastLine)
 			fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
 		}
 	}()
