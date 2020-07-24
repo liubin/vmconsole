@@ -65,12 +65,10 @@ func (r *HexByteReader) streamReader(p []byte) (n int, err error) {
 	for {
 		bufferedSize := len(r.buffer)
 		if bufferedSize > 0 {
-			writeSize := len(p)
-			size := 0
-			if bufferedSize >= writeSize {
-				size = writeSize
-			} else {
-				size = bufferedSize
+			copySize := len(p)
+			size := bufferedSize
+			if bufferedSize >= copySize {
+				size = copySize
 			}
 
 			copy(r.buffer, p, size)
@@ -95,7 +93,6 @@ func (r *HexByteReader) streamReader(p []byte) (n int, err error) {
 			r.buffer = append(r.buffer, 0xa)
 		} else {
 			eof = true
-			return
 		}
 	}
 }
