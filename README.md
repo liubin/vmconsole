@@ -8,7 +8,7 @@ read and parse vmconsole logs for Kata containers
 Download and build
 
 ```
-git get github.com/liubin/vmconsole
+go get github.com/liubin/vmconsole
 ```
 
 Run
