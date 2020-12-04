@@ -88,7 +88,7 @@ func (r *HexByteReader) streamReader(p []byte) (n int, err error) {
 
 		if r.scanner.Scan() {
 			line := r.scanner.Text()
-			line = replace(line)
+			line = escape(line)
 			r.buffer = append(r.buffer, []byte(line)...)
 			r.buffer = append(r.buffer, 0xa)
 		} else {
@@ -97,7 +97,7 @@ func (r *HexByteReader) streamReader(p []byte) (n int, err error) {
 	}
 }
 
-func replace(s string) string {
+func escape(s string) string {
 	s = strings.Replace(s, `\x`, `\\x`, -1)
 	// restore if the old string is `\\x`
 	s = strings.Replace(s, `\\\x`, `\\x`, -1)
@@ -123,7 +123,7 @@ func (r *HexByteReader) fileReader(p []byte) (n int, err error) {
 
 		// perform the conversion
 		s := string(bytes)
-		result := strings.Replace(s, `\x`, `\\x`, -1)
+		result := escape(s)
 
 		// store the data
 		r.data = []byte(result)
