@@ -8,13 +8,19 @@ read and parse vmconsole logs for Kata containers
 Download and build
 
 ```
-go get github.com/liubin/vmconsole
+$ go get github.com/liubin/vmconsole
 ```
 
-Run
+### Realtime watching
 
 ```
-vmconsole
+$ vmconsole
 ```
 
+### Parse log file
+
+```
+$ journalctl --no-pager -t kata --since="2020-12-04 06:07:20" --until="2020-12-04 08:08:00" > /tmp/guest.log
+$ vmconsole /tmp/guest.log
+```
 
